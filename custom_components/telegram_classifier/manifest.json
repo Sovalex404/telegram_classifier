@@ -1,0 +1,19 @@
+{
+  "name": "Telegram Classifier",
+  "version": "0.0.1",
+  "domain": "telegram_classifier",
+  "documentation": "https://github.com/your_username/telegram_classifier",
+  "issue_tracker": "https://github.com/your_username/telegram_classifier/issues",
+  "codeowners": ["@your_username"],
+  "config_flow": true,
+  "dependencies": ["telegram_client"],
+  "after_dependencies": ["recorder", "sql"],
+  "requirements": [
+    "spacy==3.7.4",
+    "ru_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/ru_core_news_sm-3.7.0/ru_core_news_sm-3.7.0.tar.gz"
+  ],
+  "iot_class": "local_polling",
+  "supported_by": "community",
+  "quality_scale": "silver",
+  "integration_type": "hub"
+}
