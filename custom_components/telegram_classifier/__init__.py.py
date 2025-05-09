@@ -1,8 +1,5 @@
-"""
-Custom component for Telegram message classification.
-"""
+"""Main component for Telegram Classifier."""
 from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -13,74 +10,73 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
-    DEFAULT_MODEL,
     CONF_IMPORTANT_SENDERS,
     CONF_TRACKED_NAMES,
-    DEFAULT_IMPORTANT_SENDERS,
-    DEFAULT_TRACKED_NAMES
+    DEFAULT_MODEL,
+    ATTR_MESSAGE,
+    ATTR_FROM_ID,
+    ATTR_RESULT
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the component from YAML (legacy)."""
+    """Legacy setup (YAML not supported)."""
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
-    # Initialize NLP model
+    # Load model
     try:
         nlp = spacy.load(DEFAULT_MODEL)
-        _LOGGER.info("Successfully loaded spaCy model: %s", DEFAULT_MODEL)
+        _LOGGER.info("Loaded spaCy model: %s", DEFAULT_MODEL)
     except Exception as e:
         _LOGGER.error("Failed to load spaCy model: %s", str(e))
         return False
 
-    # Get configuration
-    config = {
-        CONF_IMPORTANT_SENDERS: entry.data.get(CONF_IMPORTANT_SENDERS, DEFAULT_IMPORTANT_SENDERS),
-        CONF_TRACKED_NAMES: entry.data.get(CONF_TRACKED_NAMES, DEFAULT_TRACKED_NAMES)
-    }
-
-    # Store in hass.data
+    # Store configuration
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "nlp": nlp,
-        "config": config
+        "config": {
+            CONF_IMPORTANT_SENDERS: entry.data.get(
+                CONF_IMPORTANT_SENDERS,
+                {}
+            ),
+            CONF_TRACKED_NAMES: entry.data.get(
+                CONF_TRACKED_NAMES,
+                []
+            )
+        }
     }
 
     # Register service
-    async def async_classify_message(call: ServiceCall) -> dict[str, Any]:
+    async def async_classify(call: ServiceCall) -> dict[str, Any]:
         """Classify Telegram message."""
-        message = call.data.get("message", "")
-        from_id = call.data.get("from_id", {})
+        message = call.data.get(ATTR_MESSAGE, "")
+        from_id = call.data.get(ATTR_FROM_ID, {})
 
-        # Get stored components
         data = hass.data[DOMAIN][entry.entry_id]
-        nlp = data["nlp"]
-        config = data["config"]
+        result = _classify_message(
+            data["nlp"],
+            message,
+            from_id,
+            data["config"]
+        )
+        return {ATTR_RESULT: result}
 
-        # Classify message
-        result = classify_message(nlp, message, from_id, config)
-        return result
-
-    hass.services.async_register(DOMAIN, "classify", async_classify_message)
-
+    hass.services.async_register(DOMAIN, "classify", async_classify)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Remove service
     hass.services.async_remove(DOMAIN, "classify")
-    
-    # Clean up
     hass.data[DOMAIN].pop(entry.entry_id)
     if not hass.data[DOMAIN]:
         hass.data.pop(DOMAIN)
-    
     return True
 
-def classify_message(
+def _classify_message(
     nlp: spacy.language.Language,
     message: str,
     from_id: dict[str, Any],
@@ -110,18 +106,18 @@ def classify_message(
     if sender_type in ["teacher", "important"]:
         result["type"] = "important"
 
-        if any(token.text.lower() in ["домашнее задание", "контрольная", "дз"] for token in doc):
+        if any(token.text.lower() in ["домашнее задание", "контрольная"] for token in doc):
             result["category"] = "homework"
-        elif any(token.text.lower() in ["праздник", "экскурсия", "мероприятие"] for token in doc):
+        elif any(token.text.lower() in ["праздник", "экскурсия"] for token in doc):
             result["category"] = "event"
 
-    # Check for mentions
+    # Check mentions
     if any(name.lower() in message.lower() for name in config[CONF_TRACKED_NAMES]):
         result["category"] = "mention"
 
     # Extract tags
     for token in doc:
-        if token.text.lower() in ["математика", "физика", "литература"]:
+        if token.text.lower() in ["математика", "физика"]:
             result["tags"].append(token.text.lower())
         elif token.like_num and "руб" in doc.text.lower():
             result["tags"].append(f"{token.text} руб")
